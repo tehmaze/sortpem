@@ -53,7 +53,7 @@ haproxy  -t "^CERTIFICATE$" -t "PRIVATE KEY$" -R
 Sort a PEM bundle, CERTIFICATEs first, then any PRIVATE KEY:
 
 ```console
-$ ls -1 testdata/*.crt testdata/endpoint.key
+user@host:~$ ls -1 testdata/*.crt testdata/endpoint.key
 testdata/endpoint.crt
 testdata/endpoint.key 
 testdata/intermediate.crt 
@@ -61,48 +61,48 @@ testdata/issuer.crt
 testdata/root.crt
 
 # We have a self-signed root:
-$ openssl x509 -in testdata/root.crt -noout -subject -issuer
+user@host:~$ openssl x509 -in testdata/root.crt -noout -subject -issuer
 subject= /CN=Test Root
 issuer= /CN=Test Root
 
 # By default, the root certificate is omitted (enabled -d which decodes blocks):
-$ cat testdata/*.crt testdata/endpoint.key | sortpem -d | grep Subject:
+user@host:~$ cat testdata/*.crt testdata/endpoint.key | sortpem -d | grep Subject:
   Subject:    CN=endpoint.example.org,L=IL
   Subject:    CN=Test Intermediate
   Subject:    CN=Test Issuer
 
 # We can include it, with -root:
-$ cat testdata/*.crt testdata/endpoint.key | sortpem -root -d | grep Subject:
+user@host:~$ cat testdata/*.crt testdata/endpoint.key | sortpem -root -d | grep Subject:
   Subject:    CN=endpoint.example.org,L=IL
   Subject:    CN=Test Intermediate
   Subject:    CN=Test Issuer
   Subject:    CN=Test Root
 
 # The private key is in there too, by the way:
-$ cat testdata/*.crt testdata/endpoint.key | sortpem -root | grep 'BEGIN '
+user@host:~$ cat testdata/*.crt testdata/endpoint.key | sortpem -root | grep 'BEGIN '
 -----BEGIN CERTIFICATE-----
 -----BEGIN CERTIFICATE-----
 -----BEGIN CERTIFICATE-----
 -----BEGIN RSA PRIVATE KEY-----
 
 # Download a public certificate:
-$ echo "" | openssl s_client -connect google.com:443 -showcerts > testdata/google.com.crt
+user@host:~$ echo "" | openssl s_client -connect google.com:443 -showcerts > testdata/google.com.crt
 depth=1 C = US, O = Google Trust Services, CN = Google Internet Authority G3
 verify error:num=20:unable to get local issuer certificate
 verify return:0
 DONE
 
 # It sent us 2 certificates:
-$ grep -c 'BEGIN CERTIFICATE' testdata/google.com.crt
+user@host:~$ grep -c 'BEGIN CERTIFICATE' testdata/google.com.crt
 2
 
 # Inspect them:
-$ sortpem -d testdata/google.com.crt | grep Subject:
+user@host:~$ sortpem -d testdata/google.com.crt | grep Subject:
   Subject:    CN=*.google.com,O=Google LLC,L=Mountain View,ST=California,C=US
   Subject:    CN=Google Internet Authority G3,O=Google Trust Services,C=US
 
 # Get the full chain, including root:
-$ sortpem -root -d testdata/google.com.crt | grep Subject:
+user@host:~$ sortpem -root -d testdata/google.com.crt | grep Subject:
   Subject:    CN=*.google.com,O=Google LLC,L=Mountain View,ST=California,C=US
   Subject:    CN=Google Internet Authority G3,O=Google Trust Services,C=US
   Subject:    CN=GlobalSign,OU=GlobalSign Root CA - R2,O=GlobalSign
