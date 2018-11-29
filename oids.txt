@@ -1,0 +1,63 @@
+#oid                    Description
+# where # = # comment
+#       ! = include in bases
+!1.2.840.113549 				RSA
+ 1.2.840.113549.1				PKCS
+!1.2.840.113549.1.1			PKCS#1
+!1.2.840.113549.1.3			PKCS#3
+!1.2.840.113549.1.5			PKCS#5
+!1.2.840.113549.1.7			PKCS#7
+!1.2.840.113549.1.9			PKCS#9
+ 1.2.840.113549.1.9.1		PKCS#9 Email Address
+ 1.2.840.113549.1.9.2		PKCS#9 Unstructured Name
+ 1.2.840.113549.1.9.3		PKCS#9 Content Type
+ 1.2.840.113549.1.9.4		PKCS#9 Message Digest
+ 1.2.840.113549.1.9.5   PKCS#9 Signing Time
+ 1.2.840.113549.1.9.6   PKCS#9 Counter Signature
+ 1.2.840.113549.1.9.7 	PKCS#9 Challenge Password
+ 1.2.840.113549.1.9.8		PKCS#9 Unstructured Address
+ 1.2.840.113549.1.9.13	PKCS#9 Signing Description
+ 1.2.840.113549.1.9.14	PKCS#9 Extension Request
+ 1.2.840.113549.1.9.15	PKCS#9 SMIME Capabilities
+ 1.2.840.113549.1.9.16	PKCS#9 SMIME OID Registry
+ 1.2.840.113549.1.9.20	PKCS#9 Friendy Name
+ 1.2.840.113549.1.9.21  PKCS#9 Local Key ID
+ 1.2.840.113549.1.9.22	PKCS#9 Certificate Types
+ 1.2.840.113549.1.9.23 	PKCS#9 CRL Types
+ 1.2.840.113549.1.10		PKCS#10
+!1.2.840.113549.1.11		PKCS#11
+!1.2.840.113549.1.12		PKCS#12
+!1.3.6.1.4.1						Private Enterprise
+!1.3.6.1.4.1.311				Microsoft
+ 1.3.6.1.4.1.311.2.2		Software Publishing
+!1.3.6.1.4.1.11129 			Google
+!1.3.6.1.4.1.11129.2.4	Certificate Transparency
+ 1.3.6.1.4.1.11129.2.4.2	Certificate Transparency Enabled
+ 1.3.6.1.4.1.11129.2.4.3	Certificate Transparency Precertificate Poison
+ 1.3.6.1.4.1.11129.2.4.4	Certificate Transparency Precertificate Signing
+ 1.3.6.1.4.1.11129.2.5.3	Google Certificate Policy Compliant
+!1.3.6.1.4.1.44947			ISGR
+!1.3.6.1.5.5						PKIX
+ 1.3.6.1.5.5.7.1.1			Authority Information Access
+ 1.3.6.1.5.5.7.48.1			Authority Information Access OCSP
+ 1.3.6.1.5.5.7.48.2			Authority Information Access Issuers
+!2.5.29									Certificate Extension
+ 2.5.29.14							Subject Key Identifier
+ 2.5.29.15							Key Usage
+ 2.5.29.17							Subject Alternate Name
+ 2.5.29.19							Basic Constraints
+ 2.5.29.30							Name Constraints
+ 2.5.29.31							CRL Distribution Points
+ 2.5.29.32							Certificate Policies
+ 2.5.29.32.0						Any Policy
+ 2.5.29.35							Authority Key Identifier
+ 2.5.29.37							Extended Key Usage
+!2.23.140								CA/Browser Forum
+ 2.23.140.1.1						CAB Extended Validation
+!2.23.140.1.2 					CAB Baseline Requirements
+ 2.23.140.1.2.1					Domain Validated
+ 2.23.140.1.2.2					Organization Validated
+ 2.23.140.1.2.3					Individual Validated
+!2.23.140.1.3						CAB Extended Validation Code Signing
+!2.23.140.1.31					CAB Extended Validation TOR
+!2.23.140.2.1 					CAB Test Certificate
