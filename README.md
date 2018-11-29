@@ -52,7 +52,7 @@ haproxy  -t "^CERTIFICATE$" -t "PRIVATE KEY$" -R
 
 Sort a PEM bundle, CERTIFICATEs first, then any PRIVATE KEY:
 
-```bash
+```console
 $ ls -1 testdata/*.crt testdata/endpoint.key
 testdata/endpoint.crt
 testdata/endpoint.key 
