@@ -31,23 +31,6 @@ var (
 
 type regexps []*regexp.Regexp
 
-/*
-func (res *regexps) Less(a, b string) bool {
-	if res == nil || len(*res) == 0 {
-		return false
-	}
-	i, j := res.Index(a), res.Index(b)
-	debugf("types less(%q, %q): %d <=> %d", a, b, i, j)
-	if j == -1 {
-		return i != -1
-	}
-	if i == -1 {
-		return false
-	}
-	return i < j
-}
-*/
-
 func (res *regexps) Index(s string) int {
 	if res != nil && len(*res) > 0 {
 		for i, r := range *res {
@@ -88,34 +71,58 @@ func (res *regexps) Set(value string) error {
 	return nil
 }
 
+// PEM block types.
 const (
-	certificate        = "CERTIFICATE"
-	certificateRequest = "CERTIFICATE REQUEST"
-	publicKey          = "PUBLIC KEY"
-	privateKey         = "PRIVATE KEY"
-	rsaPublicKey       = "RSA " + publicKey
-	rsaPrivateKey      = "RSA " + privateKey
-	ecPrivateKey       = "EC " + privateKey
+	certificate               = "CERTIFICATE"
+	certificateRequest        = "CERTIFICATE REQUEST"
+	certificateRevocationList = "X509 CRL"
+	dhParameters              = "DH PARAMETERS"
+	openVPNStaticKey          = "OpenVPN Static key"
+	publicKey                 = "PUBLIC KEY"
+	privateKey                = "PRIVATE KEY"
+	rsaPublicKey              = "RSA " + publicKey
+	rsaPrivateKey             = "RSA " + privateKey
+	ecPrivateKey              = "EC " + privateKey
+	x509PrivateKey            = `(?:RSA |EC |)` + privateKey
+	opensshPrivateKey         = "OPENSSH " + privateKey
+)
+
+// PEM block type regular expressions.
+var (
+	oneCertificate               = regexp.MustCompile(`^` + certificate + `$`)
+	oneCertificateRequest        = regexp.MustCompile(`^` + certificateRequest + `$`)
+	oneCertificateRevocationList = regexp.MustCompile(`^` + certificateRevocationList + `$`)
+	anyPrivateKey                = regexp.MustCompile(privateKey + `$`)
+	oneX509PrivateKey            = regexp.MustCompile(`^` + x509PrivateKey + `$`)
+	oneRSAPrivateKey             = regexp.MustCompile(`^` + rsaPrivateKey + `$`)
+	oneOpenVPNStaticKey          = regexp.MustCompile(`^` + openVPNStaticKey)
+	oneOpenSSHPrivateKey         = regexp.MustCompile(`^` + opensshPrivateKey + `$`)
 )
 
 var (
-	// regexps
-	oneCertificate   = regexp.MustCompile(`^` + certificate + `$`)
-	anyPrivateKey    = regexp.MustCompile(privateKey + `$`)
-	oneRSAPrivateKey = regexp.MustCompile(`^` + rsaPrivateKey + `$`)
-)
+	// roots are our trusted roots, either coming from system or -ca file
+	roots *CertPool
 
-var (
-	roots   *CertPool
-	cache   = map[string]*x509.Certificate{}
+	// cache of already-parsed certificate blocks
+	cache = map[string]*x509.Certificate{}
+
+	// maxWidth is our maximum terminal width
+	maxWidth int
+
+	// presets for -p
 	presets = []preset{
-		{Name: "certs", Root: true, Filter: regexps{oneCertificate}},
-		{Name: "keys", Filter: regexps{anyPrivateKey}},
-		{Name: "nginx", Filter: regexps{oneCertificate, anyPrivateKey}},
-		{Name: "haproxy", Filter: regexps{oneCertificate, anyPrivateKey}, Root: true},
+		{Name: "crl", Filter: regexps{oneCertificateRevocationList}},
+		{Name: "crt", Root: true, Filter: regexps{oneCertificate}},
+		{Name: "csr", Filter: regexps{oneCertificateRequest}},
+		{Name: "key", Filter: regexps{oneX509PrivateKey}},
+		{Name: "nginx", Filter: regexps{oneCertificate, oneX509PrivateKey}},
+		{Name: "haproxy", Filter: regexps{oneCertificate, oneX509PrivateKey}, Root: true},
+		{Name: "openvpn", Filter: regexps{oneCertificate, oneX509PrivateKey, oneOpenVPNStaticKey}},
+		{Name: "ssh", Filter: regexps{oneOpenSSHPrivateKey}},
 	}
 )
 
+// preset is a collection of flag defaults.
 type preset struct {
 	Name    string
 	Reverse bool
@@ -153,7 +160,7 @@ func (p preset) String() string {
 		s = append(s, "-r")
 	}
 	if p.Root {
-		s = append(s, "-R")
+		s = append(s, "-root")
 	}
 	if p.Stable {
 		s = append(s, "-s")
@@ -168,6 +175,9 @@ func main() {
 	flag.Var(&typesFlag, "t", "Type of block order and filter (regular expression(s))")
 	flag.Usage = usage
 	flag.Parse()
+
+	// resolve terminal width asap
+	maxWidth = terminalWidth() - 1
 
 	switch *presetFlag {
 	case "":
@@ -200,10 +210,7 @@ func main() {
 		fatalf("%v", err)
 	}
 
-	blocks, err := decodeAll(data)
-	if err != nil {
-		fatalf("error decoding blocks: %v", err)
-	}
+	blocks := decodeAll(data)
 	if len(blocks) == 0 {
 		return
 	}
@@ -320,7 +327,7 @@ func readInput() (data []byte, err error) {
 }
 
 func openOutput() (wc io.WriteCloser, name string, err error) {
-	if *outputFlag == "" {
+	if *outputFlag == "" || *outputFlag == "-" {
 		return os.Stdout, "standard output", nil
 	}
 
@@ -329,7 +336,7 @@ func openOutput() (wc io.WriteCloser, name string, err error) {
 	return
 }
 
-func decodeAll(data []byte) (blocks []*pem.Block, err error) {
+func decodeAll(data []byte) (blocks []*pem.Block) {
 	var block *pem.Block
 	for {
 		if block, data = pem.Decode(data); block == nil {

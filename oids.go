@@ -47,17 +47,44 @@ var (
 	oidISGR                                         = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 44947}          // 1.3.6.1.4.1.44947
 	oidPKIX                                         = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5}                 // 1.3.6.1.5.5
 	oidAuthorityInformationAccess                   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}        // 1.3.6.1.5.5.7.1.1
-	oidAuthorityInformationAccessOCSP               = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}       // 1.3.6.1.5.5.7.48.1
-	oidAuthorityInformationAccessIssuers            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}       // 1.3.6.1.5.5.7.48.2
+	oidOCSP                                         = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}       // 1.3.6.1.5.5.7.48.1
+	oidOCSPBasic                                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 1}    // 1.3.6.1.5.5.7.48.1.1
+	oidOCSPNonce                                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 2}    // 1.3.6.1.5.5.7.48.1.2
+	oidOCSPCRL                                      = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 3}    // 1.3.6.1.5.5.7.48.1.3
+	oidOCSPResponse                                 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 4}    // 1.3.6.1.5.5.7.48.1.4
+	oidOCSPNoCheck                                  = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}    // 1.3.6.1.5.5.7.48.1.5
+	oidOCSPArchiveCutoff                            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 6}    // 1.3.6.1.5.5.7.48.1.6
+	oidOCSPServiceLocator                           = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 7}    // 1.3.6.1.5.5.7.48.1.7
+	oidOCSPPreferredSignatureAlgorithms             = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 8}    // 1.3.6.1.5.5.7.48.1.8
+	oidOCSPExtendedRevoke                           = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 9}    // 1.3.6.1.5.5.7.48.1.9
+	oidIssuers                                      = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}       // 1.3.6.1.5.5.7.48.2
+	oidTimestamping                                 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 3}       // 1.3.6.1.5.5.7.48.3
+	oidDVCS                                         = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 4}       // 1.3.6.1.5.5.7.48.4
+	oidCARepository                                 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}       // 1.3.6.1.5.5.7.48.5
+	oidHTTPCerts                                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 6}       // 1.3.6.1.5.5.7.48.6
+	oidHTTPCRLs                                     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 7}       // 1.3.6.1.5.5.7.48.7
+	oidXKMS                                         = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 8}       // 1.3.6.1.5.5.7.48.8
+	oidSignedObjectRepository                       = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 9}       // 1.3.6.1.5.5.7.48.9
+	oidRPKIManifest                                 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 10}      // 1.3.6.1.5.5.7.48.10
+	oidSignedObject                                 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 11}      // 1.3.6.1.5.5.7.48.11
+	oidCMC                                          = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 12}      // 1.3.6.1.5.5.7.48.12
+	oidRPKINotify                                   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 13}      // 1.3.6.1.5.5.7.48.13
+	oidSTIRTNList                                   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 14}      // 1.3.6.1.5.5.7.48.14
 	oidCertificateExtension                         = asn1.ObjectIdentifier{2, 5, 29}                         // 2.5.29
 	oidSubjectKeyIdentifier                         = asn1.ObjectIdentifier{2, 5, 29, 14}                     // 2.5.29.14
 	oidKeyUsage                                     = asn1.ObjectIdentifier{2, 5, 29, 15}                     // 2.5.29.15
 	oidSubjectAlternateName                         = asn1.ObjectIdentifier{2, 5, 29, 17}                     // 2.5.29.17
 	oidBasicConstraints                             = asn1.ObjectIdentifier{2, 5, 29, 19}                     // 2.5.29.19
+	oidCRLNumber                                    = asn1.ObjectIdentifier{2, 5, 29, 20}                     // 2.5.29.20
+	oidRevocationReason                             = asn1.ObjectIdentifier{2, 5, 29, 21}                     // 2.5.29.21
+	oidHoldInstruction                              = asn1.ObjectIdentifier{2, 5, 29, 23}                     // 2.5.29.23
+	oidInvalidityDate                               = asn1.ObjectIdentifier{2, 5, 29, 24}                     // 2.5.29.24
+	oidDeltaCRLIndicator                            = asn1.ObjectIdentifier{2, 5, 29, 27}                     // 2.5.29.27
 	oidNameConstraints                              = asn1.ObjectIdentifier{2, 5, 29, 30}                     // 2.5.29.30
 	oidCRLDistributionPoints                        = asn1.ObjectIdentifier{2, 5, 29, 31}                     // 2.5.29.31
 	oidCertificatePolicies                          = asn1.ObjectIdentifier{2, 5, 29, 32}                     // 2.5.29.32
 	oidAnyPolicy                                    = asn1.ObjectIdentifier{2, 5, 29, 32, 0}                  // 2.5.29.32.0
+	oidPolicyMappings                               = asn1.ObjectIdentifier{2, 5, 29, 33}                     // 2.5.29.33
 	oidAuthorityKeyIdentifier                       = asn1.ObjectIdentifier{2, 5, 29, 35}                     // 2.5.29.35
 	oidExtendedKeyUsage                             = asn1.ObjectIdentifier{2, 5, 29, 37}                     // 2.5.29.37
 	oidCAbrowserForum                               = asn1.ObjectIdentifier{2, 23, 140}                       // 2.23.140
@@ -132,17 +159,44 @@ var (
 		"1.3.6.1.4.1.44947":       "ISGR",
 		"1.3.6.1.5.5":             "PKIX",
 		"1.3.6.1.5.5.7.1.1":       "Authority Information Access",
-		"1.3.6.1.5.5.7.48.1":      "Authority Information Access OCSP",
-		"1.3.6.1.5.5.7.48.2":      "Authority Information Access Issuers",
+		"1.3.6.1.5.5.7.48.1":      "OCSP",
+		"1.3.6.1.5.5.7.48.1.1":    "OCSP Basic",
+		"1.3.6.1.5.5.7.48.1.2":    "OCSP Nonce",
+		"1.3.6.1.5.5.7.48.1.3":    "OCSP CRL",
+		"1.3.6.1.5.5.7.48.1.4":    "OCSP Response",
+		"1.3.6.1.5.5.7.48.1.5":    "OCSP No Check",
+		"1.3.6.1.5.5.7.48.1.6":    "OCSP Archive Cutoff",
+		"1.3.6.1.5.5.7.48.1.7":    "OCSP Service Locator",
+		"1.3.6.1.5.5.7.48.1.8":    "OCSP Preferred Signature Algorithms",
+		"1.3.6.1.5.5.7.48.1.9":    "OCSP Extended Revoke",
+		"1.3.6.1.5.5.7.48.2":      "Issuers",
+		"1.3.6.1.5.5.7.48.3":      "Timestamping",
+		"1.3.6.1.5.5.7.48.4":      "DVCS",
+		"1.3.6.1.5.5.7.48.5":      "CA Repository",
+		"1.3.6.1.5.5.7.48.6":      "HTTP Certs",
+		"1.3.6.1.5.5.7.48.7":      "HTTP CRLs",
+		"1.3.6.1.5.5.7.48.8":      "XKMS",
+		"1.3.6.1.5.5.7.48.9":      "Signed Object Repository",
+		"1.3.6.1.5.5.7.48.10":     "RPKI Manifest",
+		"1.3.6.1.5.5.7.48.11":     "Signed Object",
+		"1.3.6.1.5.5.7.48.12":     "CMC",
+		"1.3.6.1.5.5.7.48.13":     "RPKI Notify",
+		"1.3.6.1.5.5.7.48.14":     "STIR TN List",
 		"2.5.29":                  "Certificate Extension",
 		"2.5.29.14":               "Subject Key Identifier",
 		"2.5.29.15":               "Key Usage",
 		"2.5.29.17":               "Subject Alternate Name",
 		"2.5.29.19":               "Basic Constraints",
+		"2.5.29.20":               "CRL Number",
+		"2.5.29.21":               "Revocation Reason",
+		"2.5.29.23":               "Hold Instruction",
+		"2.5.29.24":               "Invalidity Date",
+		"2.5.29.27":               "Delta CRL Indicator",
 		"2.5.29.30":               "Name Constraints",
 		"2.5.29.31":               "CRL Distribution Points",
 		"2.5.29.32":               "Certificate Policies",
 		"2.5.29.32.0":             "Any Policy",
+		"2.5.29.33":               "Policy Mappings",
 		"2.5.29.35":               "Authority Key Identifier",
 		"2.5.29.37":               "Extended Key Usage",
 		"2.23.140":                "CA/Browser Forum",

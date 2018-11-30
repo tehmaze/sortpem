@@ -2,10 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
@@ -21,26 +17,78 @@ type indentWriter struct {
 	indent int
 }
 
+// Indent is the total indetation size.
+func (w indentWriter) Indent() int {
+	var (
+		indent = w.indent
+		node   = w
+	)
+	for {
+		if next, ok := node.Writer.(indentWriter); ok {
+			indent += next.indent
+			node = next
+		} else {
+			break
+		}
+	}
+	return indent
+}
+
+// Root writer.
+func (w indentWriter) Root() io.Writer {
+	var node = w
+	for {
+		if next, ok := node.Writer.(indentWriter); ok {
+			node = next
+		} else {
+			break
+		}
+	}
+	return node.Writer
+}
+
 func (w indentWriter) Write(p []byte) (int, error) {
 	return w.Writer.Write(append(bytes.Repeat([]byte{0x20}, w.indent), p...))
 }
 
+const (
+	procType  = "Proc-Type"
+	dekInfo   = "DEK-Info"
+	encrypted = "ENCRYPTED"
+)
+
 // dumpText decodes and dumps the contents of a PEM block; only errors
 // encountered during writing shall be reported
 func dumpText(w io.Writer, block *pem.Block) (err error) {
+	debugf("dump: %s block", block.Type)
 	switch block.Type {
 	case certificate:
 		return dumpCertificateData(w, block.Bytes)
 	case certificateRequest:
 		return dumpCertificateRequestData(w, block.Bytes)
+	case certificateRevocationList:
+		return dumpCertificateRevocationListData(w, block.Bytes)
+	case dhParameters:
+		return dumpDHParametersData(w, block.Bytes)
 	case publicKey:
 		return dumpPublicKeyData(w, block.Bytes)
 	case privateKey:
+		if strings.HasSuffix(block.Headers[procType], encrypted) {
+			return dumpEncryptedPrivateKeyData(w, block.Bytes, block.Headers)
+		}
 		return dumpPrivateKeyData(w, block.Bytes)
 	case ecPrivateKey:
+		if strings.HasSuffix(block.Headers[procType], encrypted) {
+			return dumpEncryptedECDSAPrivateKeyData(w, block.Bytes, block.Headers)
+		}
 		return dumpECDSAPrivateKeyData(w, block.Bytes)
 	case rsaPrivateKey:
+		if strings.HasSuffix(block.Headers[procType], encrypted) {
+			return dumpEncryptedRSAPrivateKeyData(w, block.Bytes, block.Headers)
+		}
 		return dumpRSAPrivateKeyData(w, block.Bytes)
+	case opensshPrivateKey:
+		return dumpOpenSSHPrivateKeyData(w, block.Bytes)
 	default:
 		fmt.Fprintf(w, "%s:\n", strings.Title(strings.ToLower(block.Type)))
 		return dumpBytes(indentWriter{w, 2}, block.Bytes)
@@ -106,337 +154,151 @@ func dumpBytes(w io.Writer, data []byte) (err error) {
 	return
 }
 
-func dumpCertificate(w io.Writer, c *x509.Certificate) (err error) {
-	fmt.Fprintln(w, "Certificate:")
-	fmt.Fprintf(w, "  Version:    %d (%#x)\n", c.Version, c.Version-1)
-	fmt.Fprintf(w, "  Serial:     %d (%#x)\n", c.SerialNumber, c.SerialNumber)
-	fmt.Fprintf(w, "  Issuer:     %s\n", c.Issuer)
-	fmt.Fprintf(w, "  Not before: %s\n", c.NotBefore.Format(timeFormat))
-	fmt.Fprintf(w, "  Not after:  %s\n", c.NotAfter.Format(timeFormat))
-	fmt.Fprintf(w, "  Subject:    %s\n", c.Subject)
-	fmt.Fprintln(w, "  Public key:")
-	switch key := c.PublicKey.(type) {
-	case *ecdsa.PublicKey:
-		if err = dumpECDSAPublicKey(indentWriter{w, 4}, key); err != nil {
-			return
-		}
-	case *rsa.PublicKey:
-		if err = dumpRSAPublicKey(indentWriter{w, 4}, key); err != nil {
-			return
-		}
-	default:
-		i := indentWriter{w, 6}
-		fmt.Fprintf(i, "Unsupported Public Key (%T):\n", key)
-		i.indent += 2
-		if err = dumpBytes(i, c.RawSubjectPublicKeyInfo); err != nil {
-			return
-		}
+func paddedBytes(b []byte) (out []byte) {
+	lb := len(b)
+	out = make([]byte, 0, 3*lb)
+	ox := out[lb : 3*lb]
+	hex.Encode(ox, b)
+	for i := 0; i < len(ox); i += 2 {
+		out = append(out, ox[i], ox[i+1], ':')
 	}
-	if err = dumpExtensions(indentWriter{w, 2}, c.Extensions, c); err != nil {
-		return
-	}
+	out = out[:len(out)-1]
 	return
 }
 
-func dumpCertificateData(w io.Writer, data []byte) (err error) {
-	var c *x509.Certificate
-	if c, err = decodeCertificate(data); err != nil {
-		fmt.Fprintf(w, "Invalid Certificate (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	return dumpCertificate(w, c)
-}
+func dumpPaddedBytes(w io.Writer, b []byte) (err error) {
+	var (
+		buf = paddedBytes(b)
+		dst = new(bytes.Buffer)
+		out [3]byte
+		n   int
+	)
 
-func dumpCertificateRequest(w io.Writer, r *x509.CertificateRequest) (err error) {
-	fmt.Fprintln(w, "Certificate Request:")
-	fmt.Fprintf(w, "  Version:    %d (%#x)\n", r.Version, r.Version)
-	fmt.Fprintf(w, "  Subject:    %s\n", r.Subject)
-	fmt.Fprintln(w, "  Public key:")
-	i := indentWriter{w, 4}
-	switch key := r.PublicKey.(type) {
-	case *ecdsa.PublicKey:
-		if err = dumpECDSAPublicKey(i, key); err != nil {
-			return
-		}
-	case *rsa.PublicKey:
-		if err = dumpRSAPublicKey(i, key); err != nil {
-			return
-		}
-	default:
-		fmt.Fprintf(i, "Unsupported Public Key (%T):\n", key)
-		i.indent += 2
-		if err = dumpBytes(i, r.RawSubjectPublicKeyInfo); err != nil {
-			return
-		}
-		i.indent -= 2
-	}
-	if len(r.Attributes) > 0 {
-		fmt.Fprintln(w, "    Attributes:")
-		for _, attr := range r.Attributes {
-			if err = dumpOID(i, attr.Type); err != nil {
-				return
-			}
-		}
-	}
-	if err = dumpExtensions(i, r.Extensions, r); err != nil {
-		return
-	}
-	return
-}
-
-func dumpCertificateRequestData(w io.Writer, data []byte) (err error) {
-	var r *x509.CertificateRequest
-	if r, err = x509.ParseCertificateRequest(data); err != nil {
-		fmt.Fprintf(w, "Invalid Certificate Request (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	return dumpCertificateRequest(w, r)
-}
-
-func dumpPublicKeyData(w io.Writer, data []byte) (err error) {
-	var k interface{}
-	if k, err = x509.ParsePKIXPublicKey(data); err != nil {
-		fmt.Fprintf(w, "Invalid PKIX Public Key (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	switch key := k.(type) {
-	case *ecdsa.PublicKey:
-		return dumpECDSAPublicKey(w, key)
-	case *rsa.PublicKey:
-		return dumpRSAPublicKey(w, key)
-	default:
-		fmt.Fprintf(w, "Unsupported Public Key (%T):\n", key)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-}
-
-func dumpPrivateKeyData(w io.Writer, data []byte) (err error) {
-	var k interface{}
-	if k, err = x509.ParsePKCS8PrivateKey(data); err != nil {
-		fmt.Fprintf(w, "Invalid PKCS#8 Private Key (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	switch key := k.(type) {
-	case *ecdsa.PrivateKey:
-		return dumpECDSAPrivateKey(w, key)
-	case *rsa.PrivateKey:
-		return dumpRSAPrivateKey(w, key)
-	default:
-		fmt.Fprintf(w, "Unsupported Private Key (%T):", key)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-}
-
-func dumpECDSAPrivateKey(w io.Writer, key *ecdsa.PrivateKey) (err error) {
-	p := key.Curve.Params()
-	i := indentWriter{w, 4}
-	fmt.Fprintf(w, "ECDSA Private Key: (%d bits, %s)\n", p.BitSize, p.Name)
-	fmt.Fprintln(w, "  Private:")
-	dumpBytes(i, key.D.Bytes())
-	fmt.Fprintf(w, "  Public X:")
-	dumpBytes(i, key.X.Bytes())
-	fmt.Fprintln(w, "  Public Y:")
-	dumpBytes(i, key.Y.Bytes())
-	return
-}
-
-func dumpECDSAPrivateKeyData(w io.Writer, data []byte) (err error) {
-	var k *ecdsa.PrivateKey
-	if k, err = x509.ParseECPrivateKey(data); err != nil {
-		fmt.Fprintf(w, "Invalid EC Private Key (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	return dumpECDSAPrivateKey(w, k)
-}
-
-func dumpECDSAPublicKey(w io.Writer, key *ecdsa.PublicKey) (err error) {
-	p := key.Curve.Params()
-	i := indentWriter{w, 4}
-	fmt.Fprintf(w, "ECDSA Public Key: (%d bits, %s)\n", p.BitSize, p.Name)
-	fmt.Fprintln(w, "  Public X:")
-	dumpBytes(i, key.X.Bytes())
-	fmt.Fprintln(w, "  Public Y:")
-	dumpBytes(i, key.Y.Bytes())
-	return
-}
-
-func dumpRSAPublicKey(w io.Writer, key *rsa.PublicKey) (err error) {
-	fmt.Fprintf(w, "RSA Public Key: (%d bit)\n", key.N.BitLen())
-	fmt.Fprintf(w, "  Exponent: %d (%#x)\n", key.E, key.E)
-	fmt.Fprintln(w, "  Modulus:")
-	return dumpBytes(indentWriter{w, 4}, key.N.Bytes())
-}
-
-func dumpRSAPrivateKey(w io.Writer, key *rsa.PrivateKey) (err error) {
-	fmt.Fprintf(w, "RSA Private Key: (%d bit)\n", key.N.BitLen())
-	fmt.Fprintf(w, "  Exponent: %d (%#x)\n", key.E, key.E)
-	fmt.Fprintln(w, "  Modulus:")
-	if err = dumpBytes(indentWriter{w, 4}, key.N.Bytes()); err != nil {
-		return
-	}
-	return
-}
-
-func dumpRSAPrivateKeyData(w io.Writer, data []byte) (err error) {
-	var k *rsa.PrivateKey
-	if k, err = x509.ParsePKCS1PrivateKey(data); err != nil {
-		fmt.Fprintf(w, "Invalid PKCS#1 Private Key (%v):\n", err)
-		return dumpBytes(indentWriter{w, 2}, data)
-	}
-	return dumpRSAPrivateKey(w, k)
-}
-
-func dumpExtensions(w io.Writer, exts []pkix.Extension, v interface{}) (err error) {
-	if len(exts) == 0 {
-		return
-	}
-	fmt.Fprintf(w, "Extensions (%d):\n", len(exts))
-	for _, ext := range exts {
-		if err = dumpExtension(indentWriter{w, 2}, ext, v); err != nil {
+	// Write out colon separated hex without the last colon
+	for i := 0; i < len(buf); i, buf = i+n, buf[n:] {
+		n = copy(out[:], buf)
+		if _, err = dst.Write(out[:n]); err != nil {
 			return
 		}
 	}
-	return
-}
 
-var (
-	keyUsages = []x509.KeyUsage{
-		x509.KeyUsageDigitalSignature,
-		x509.KeyUsageContentCommitment,
-		x509.KeyUsageKeyEncipherment,
-		x509.KeyUsageDataEncipherment,
-		x509.KeyUsageKeyAgreement,
-		x509.KeyUsageCertSign,
-		x509.KeyUsageCRLSign,
-		x509.KeyUsageEncipherOnly,
-		x509.KeyUsageDecipherOnly,
-	}
-	keyUsageNames = map[x509.KeyUsage]string{
-		x509.KeyUsageCRLSign:           "CRL Signing",
-		x509.KeyUsageCertSign:          "Certificate Signing",
-		x509.KeyUsageContentCommitment: "Content Commitment",
-		x509.KeyUsageDataEncipherment:  "Data Encipherment",
-		x509.KeyUsageDecipherOnly:      "Decipher Only",
-		x509.KeyUsageDigitalSignature:  "Digital Signature",
-		x509.KeyUsageEncipherOnly:      "Encipher Only",
-		x509.KeyUsageKeyAgreement:      "Key Agreement",
-		x509.KeyUsageKeyEncipherment:   "Key Encipherment",
-	}
-	extKeyUsageNames = map[x509.ExtKeyUsage]string{
-		x509.ExtKeyUsageAny:                            "Any",
-		x509.ExtKeyUsageServerAuth:                     "Server Authentication",
-		x509.ExtKeyUsageClientAuth:                     "Client Authentication",
-		x509.ExtKeyUsageCodeSigning:                    "Code Signing",
-		x509.ExtKeyUsageEmailProtection:                "Email Protection",
-		x509.ExtKeyUsageIPSECEndSystem:                 "IPSEC End System",
-		x509.ExtKeyUsageIPSECTunnel:                    "IPSEC Tunnel",
-		x509.ExtKeyUsageIPSECUser:                      "IPSEC User",
-		x509.ExtKeyUsageTimeStamping:                   "Timestamping",
-		x509.ExtKeyUsageOCSPSigning:                    "OCSP Signing",
-		x509.ExtKeyUsageMicrosoftServerGatedCrypto:     "Microsoft Server Gated Crypto",
-		x509.ExtKeyUsageNetscapeServerGatedCrypto:      "Netscape Server Gated Crypto",
-		x509.ExtKeyUsageMicrosoftCommercialCodeSigning: "Microsoft Commercial Code Signing",
-		x509.ExtKeyUsageMicrosoftKernelCodeSigning:     "Microsoft Kernel Code Signing",
-	}
-)
-
-func dumpExtension(w io.Writer, ext pkix.Extension, v interface{}) (err error) {
-	if ext.Critical {
-		err = dumpOID(w, ext.Id, "Critical")
+	// Write out remainder with a trailing newline
+	if len(buf) > 0 {
+		if _, err = dst.Write(append(buf, '\n')); err != nil {
+			return
+		}
+		buf = buf[:0]
 	} else {
-		err = dumpOID(w, ext.Id)
+		if _, err = dst.Write([]byte{'\n'}); err != nil {
+			return
+		}
 	}
-	if err != nil {
+
+	// Flush our buffer
+	_, err = w.Write(dst.Bytes())
+	return
+}
+
+func dumpPaddedBytesLimit(writer io.Writer, b []byte, limit int) (err error) {
+	var (
+		w   io.Writer
+		pad []byte
+		buf = paddedBytes(b)
+		out [3]byte
+		n   int
+	)
+
+	// Find correct limit and root writer
+	limit -= 3 // we emit two hextets and a colon for each byte in b
+	if i, ok := writer.(indentWriter); ok {
+		indent := i.Indent()
+		pad = bytes.Repeat([]byte{0x20}, indent)
+		limit -= indent
+		w = i.Root()
+	} else {
+		w = writer
+	}
+
+	// Write out colon separated hex without the last colon
+	for len(buf) > 0 {
+		if len(pad) > 0 {
+			if _, err = w.Write(pad); err != nil {
+				return
+			}
+		}
+		for i := 0; i < limit && len(buf) > 2; i, buf = i+n, buf[n:] {
+			n = copy(out[:], buf)
+			if _, err = w.Write(out[:n]); err != nil {
+				return
+			}
+		}
+
+		// Write out remainder with a trailing newline
+		if len(buf) == 2 {
+			if _, err = w.Write(append(buf, '\n')); err != nil {
+				return
+			}
+			buf = buf[:0]
+		} else {
+			if _, err = w.Write([]byte{'\n'}); err != nil {
+				return
+			}
+		}
+	}
+
+	return
+}
+
+func dumpStringsLimit(writer io.Writer, title string, values []string, limit int) (err error) {
+	if len(values) == 0 {
+		// Fast way out
 		return
 	}
-	switch v := v.(type) {
-	case *x509.Certificate:
-		switch {
-		case ext.Id.Equal(oidSubjectKeyIdentifier):
-			fmt.Fprintf(w, "  %x\n", v.SubjectKeyId)
 
-		case ext.Id.Equal(oidAuthorityKeyIdentifier):
-			fmt.Fprintf(w, "  %x\n", v.AuthorityKeyId)
+	var (
+		w   io.Writer
+		pad []byte
+		buf = new(bytes.Buffer)
+	)
 
-		case ext.Id.Equal(oidBasicConstraints):
-			fmt.Fprintf(w, "  CA:%t\n", v.IsCA)
-			if !v.MaxPathLenZero {
-				fmt.Fprintf(w, "  Max Path Length: %d\n", v.MaxPathLen)
-			}
+	// Find correct limit and root writer
+	limit -= len(title) + 2 // we emit the title, plus a colon and a space
+	if i, ok := writer.(indentWriter); ok {
+		indent := i.Indent()
+		pad = bytes.Repeat([]byte{0x20}, indent)
+		limit -= indent
+		w = i.Root()
+	} else {
+		w = writer
+	}
 
-		case ext.Id.Equal(oidSubjectAlternateName):
-			fmt.Fprintln(w, "  Subject Alternative Name:")
-			for _, name := range v.DNSNames {
-				fmt.Fprintf(w, "    DNS Name: %s\n", name)
-			}
-			for _, name := range v.EmailAddresses {
-				fmt.Fprintf(w, "    Email Address: %s\n", name)
-			}
-			for _, ip := range v.IPAddresses {
-				fmt.Fprintf(w, "    IP Address: %s\n", ip)
-			}
-			for _, uri := range v.URIs {
-				fmt.Fprintf(w, "    URI: %s\n", uri)
-			}
-
-		case ext.Id.Equal(oidCertificatePolicies):
-			for _, id := range v.PolicyIdentifiers {
-				if err = dumpOID(indentWriter{w, 2}, id); err != nil {
-					return
-				}
-			}
-
-		case ext.Id.Equal(oidNameConstraints):
-
-		case ext.Id.Equal(oidCRLDistributionPoints):
-			for _, uri := range v.CRLDistributionPoints {
-				fmt.Fprintf(w, "  %s\n", uri)
-			}
-
-		case ext.Id.Equal(oidAuthorityInformationAccess):
-			for _, uri := range v.OCSPServer {
-				fmt.Fprintf(w, "  OCSP: %s\n", uri)
-			}
-			for _, uri := range v.IssuingCertificateURL {
-				fmt.Fprintf(w, "  Issuing Certificate URL: %s\n", uri)
-			}
-
-		case ext.Id.Equal(oidAuthorityInformationAccessOCSP):
-		case ext.Id.Equal(oidAuthorityInformationAccessIssuers):
-
-		case ext.Id.Equal(oidKeyUsage):
-			var usages []string
-			for _, usage := range keyUsages {
-				if v.KeyUsage&usage == usage {
-					usages = append(usages, keyUsageNames[usage])
-				}
-			}
-			if len(usages) > 0 {
-				fmt.Fprintf(w, "  %s\n", strings.Join(usages, ", "))
-			}
-
-		case ext.Id.Equal(oidExtendedKeyUsage):
-			var usages []string
-			for _, usage := range v.ExtKeyUsage {
-				usages = append(usages, extKeyUsageNames[usage])
-			}
-			if len(usages) > 0 {
-				fmt.Fprintf(w, "  %s\n", strings.Join(usages, ", "))
-			}
-
-		default:
-			if err = dumpBytes(indentWriter{w, 2}, ext.Value); err != nil {
-				return
-			}
+	for len(values) > 0 {
+		fmt.Fprintf(buf, "%s: %s", title, values[0])
+		values = values[1:]
+		for len(values) > 0 && buf.Len()+len(values[0])+2 < limit {
+			fmt.Fprintf(buf, ", %s", values[0])
+			values = values[1:]
 		}
-
-	case *x509.CertificateRequest:
-		switch {
-		default:
-			if err = dumpBytes(indentWriter{w, 2}, ext.Value); err != nil {
-				return
-			}
+		buf.WriteByte('\n')
+		if _, err = w.Write(pad); err != nil {
+			return
 		}
+		if _, err = w.Write(buf.Bytes()); err != nil {
+			return
+		}
+		buf.Reset()
+	}
+
+	return
+}
+
+func dumpEncryptedData(w io.Writer, kind string, data []byte, headers map[string]string) (err error) {
+	fmt.Fprintf(w, "Encrypted %s:\n", strings.Title(kind))
+	if info, ok := headers[dekInfo]; ok {
+		cipher := strings.ToUpper(strings.TrimPrefix(strings.SplitN(info, ",", 2)[0], "id-"))
+		fmt.Fprintf(w, "  Cipher: %s\n", cipher)
+	} else {
+		fmt.Fprintln(w, "  Cipher: Unknown")
 	}
 	return
 }
