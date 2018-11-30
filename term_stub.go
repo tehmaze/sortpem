@@ -1,4 +1,4 @@
-// +build !darwin,!freebsd,!linux
+// +build nacl js,wasm plan9 windows
 
 package main
 

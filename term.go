@@ -5,6 +5,8 @@ import (
 	"strconv"
 )
 
+const defaultTerminalWidth = 80
+
 // terminalWidth resolves the system terminal width, by:
 //  1. observe the COLUMNS environment setting, if set and int it is used
 //  2. call systemTerminalWidth() to get the terminal width from the system
@@ -22,7 +24,7 @@ func terminalWidth() (width int) {
 		return
 	}
 
-	width = 80
+	width = defaultTerminalWidth
 	debugf("terminal width: using default: %d", width)
 	return
 }

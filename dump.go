@@ -209,6 +209,9 @@ func dumpPaddedBytesLimit(writer io.Writer, b []byte, limit int) (err error) {
 	)
 
 	// Find correct limit and root writer
+	if limit == 0 {
+		limit = defaultTerminalWidth
+	}
 	limit -= 3 // we emit two hextets and a colon for each byte in b
 	if i, ok := writer.(indentWriter); ok {
 		indent := i.Indent()
@@ -262,6 +265,9 @@ func dumpStringsLimit(writer io.Writer, title string, values []string, limit int
 	)
 
 	// Find correct limit and root writer
+	if limit == 0 {
+		limit = defaultTerminalWidth
+	}
 	limit -= len(title) + 2 // we emit the title, plus a colon and a space
 	if i, ok := writer.(indentWriter); ok {
 		indent := i.Indent()

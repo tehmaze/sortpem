@@ -1,3 +1,5 @@
+// +build darwin dragonfly freebsd linux netbsd openbsd
+
 package main
 
 import (
@@ -5,20 +7,19 @@ import (
 	"unsafe"
 )
 
+var (
+	stdinfd    = uintptr(syscall.Stdin)
+	tiocgwinsz = uintptr(syscall.TIOCGWINSZ)
+)
+
 type winsize struct {
-	Row    uint16
-	Col    uint16
-	Xpixel uint16
-	Ypixel uint16
+	Row, Col, X, Y uint16
 }
 
 func systemTerminalWidth() (width int) {
 	var (
 		ws        = &winsize{}
-		ret, _, _ = syscall.Syscall(syscall.SYS_IOCTL,
-			uintptr(syscall.Stdin),
-			uintptr(syscall.TIOCGWINSZ),
-			uintptr(unsafe.Pointer(ws)))
+		ret, _, _ = syscall.Syscall(syscall.SYS_IOCTL, stdinfd, tiocgwinsz, uintptr(unsafe.Pointer(ws)))
 	)
 	if int(ret) == -1 {
 		return

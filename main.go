@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -109,6 +110,10 @@ var (
 	// maxWidth is our maximum terminal width
 	maxWidth int
 
+	// writers for debugf(), warnf() and fatalf()
+	debugWriter = os.Stderr
+	errorWriter = os.Stderr
+
 	// presets for -p
 	presets = []preset{
 		{Name: "crl", Filter: regexps{oneCertificateRevocationList}},
@@ -205,7 +210,7 @@ func main() {
 		fatalf("error loading system certificates: %v", err)
 	}
 
-	data, err := readInput()
+	data, err := readInput(flag.Args())
 	if err != nil {
 		fatalf("%v", err)
 	}
@@ -233,9 +238,9 @@ func main() {
 	}
 
 	if *stableFlag {
-		sort.SliceStable(blocks, compareBlock(blocks))
+		sort.Stable(blocks)
 	} else {
-		sort.Slice(blocks, compareBlock(blocks))
+		sort.Sort(blocks)
 	}
 
 	var (
@@ -294,15 +299,15 @@ func readRoots() (pool *CertPool, err error) {
 	return
 }
 
-func readInput() (data []byte, err error) {
-	if flag.NArg() == 0 {
+func readInput(args []string) (data []byte, err error) {
+	if len(args) == 0 {
 		if data, err = ioutil.ReadAll(os.Stdin); err != nil {
 			return nil, fmt.Errorf("error reading standard input: %v", err)
 		}
 		return
 	}
 
-	for _, name := range flag.Args() {
+	for _, name := range args {
 		var (
 			rc   io.ReadCloser
 			part []byte
@@ -336,7 +341,7 @@ func openOutput() (wc io.WriteCloser, name string, err error) {
 	return
 }
 
-func decodeAll(data []byte) (blocks []*pem.Block) {
+func decodeAll(data []byte) (blocks pemBlocks) {
 	var block *pem.Block
 	for {
 		if block, data = pem.Decode(data); block == nil {
@@ -348,42 +353,52 @@ func decodeAll(data []byte) (blocks []*pem.Block) {
 	}
 }
 
+var errCachedInvalid = errors.New("invalid certificate (cached)")
+
 func decodeCertificate(pemCert []byte) (c *x509.Certificate, err error) {
 	var ok bool
 	if c, ok = cache[string(pemCert)]; ok {
+		if c == nil {
+			return nil, errCachedInvalid
+		}
 		return
 	}
 
-	if c, err = x509.ParseCertificate(pemCert); err == nil {
-		cache[string(pemCert)] = c
-	}
+	c, err = x509.ParseCertificate(pemCert)
+	cache[string(pemCert)] = c
 
 	return
 }
 
-func compareBlock(blocks []*pem.Block) func(int, int) bool {
-	return func(i, j int) bool {
-		a, b := blocks[i], blocks[j]
-		debugf("compare blocks: %q (%d) <=> %q (%d)", a.Type, i, b.Type, j)
-		if a.Type == certificate {
-			if b.Type == certificate {
-				return compareCertificates(a.Bytes, b.Bytes) != *reverseFlag
-			}
-			return !*reverseFlag
-		}
+type pemBlocks []*pem.Block
 
-		ai, bi := typesFlag.Index(a.Type), typesFlag.Index(b.Type)
-		if bi == -1 { // b's Type is not in -t
-			return ai != -1
+func (blocks pemBlocks) Len() int { return len(blocks) }
+
+func (blocks pemBlocks) Less(i, j int) bool {
+	a, b := blocks[i], blocks[j]
+	debugf("compare blocks: %q (%d) <=> %q (%d)", a.Type, i, b.Type, j)
+	if a.Type == certificate {
+		if b.Type == certificate {
+			return compareCertificates(a.Bytes, b.Bytes) != *reverseFlag
 		}
-		if bi == -1 { // a's Type is not in -t
-			return false
-		}
-		if ai == bi { // a and b are of same type in -t
-			return a.Type < b.Type
-		}
-		return ai < bi
+		return !*reverseFlag
 	}
+
+	ai, bi := typesFlag.Index(a.Type), typesFlag.Index(b.Type)
+	if bi == -1 { // b's Type is not in -t
+		return ai != -1
+	}
+	if bi == -1 { // a's Type is not in -t
+		return false
+	}
+	if ai == bi { // a and b are of same type in -t
+		return a.Type < b.Type
+	}
+	return ai < bi
+}
+
+func (blocks pemBlocks) Swap(i, j int) {
+	blocks[i], blocks[j] = blocks[j], blocks[i]
 }
 
 func compareCertificates(i, j []byte) bool {
@@ -432,6 +447,8 @@ func compareCertificates(i, j []byte) bool {
 	return false // don't know!
 }
 
+// includeRoot attempts to resolve root certificates for CERTIFICATE types in
+// blocks; it also removes any CERTIFICATE blocks that fail to decode
 func includeRoot(blocks []*pem.Block) []*pem.Block {
 	debugf("including root certificate for %d block(s)", len(blocks))
 
@@ -444,14 +461,17 @@ func includeRoot(blocks []*pem.Block) []*pem.Block {
 			c, err := decodeCertificate(block.Bytes)
 			if err != nil {
 				warnf("error parsing certificate: %v", err)
+				// found a broken certificate block, resume from start
 				return includeRoot(append(blocks[:i], blocks[i+1:]...))
 			} else if found = isRoot(c); found {
+				// already a root certificate, nothing to do here
 				return blocks
 			}
 			certs = append(certs, c)
 		}
 	}
 
+	// now, for the parsed certificates, find roots
 	for _, cert := range certs {
 		if parents, _, err := roots.findVerifiedParents(cert); err != nil {
 			warnf("error finding root certificate for %q: %v", cert.Subject, err)
@@ -469,6 +489,8 @@ func includeRoot(blocks []*pem.Block) []*pem.Block {
 	return blocks
 }
 
+// excludeRoots attempts to remove root certificates for CERTIFICATE types in
+// blocks; it also removes any CERTIFICATE blocks that fail to decode
 func excludeRoots(blocks []*pem.Block) []*pem.Block {
 	debugf("filtering out root certificates in %d block(s)", len(blocks))
 
@@ -477,8 +499,9 @@ func excludeRoots(blocks []*pem.Block) []*pem.Block {
 			c, err := decodeCertificate(block.Bytes)
 			if err != nil {
 				warnf("error parsing certificate: %v", err)
-				return excludeRoots(append(blocks[:i], blocks[i+1:]...))
-			} else if isRoot(c) {
+			}
+			if err != nil || isRoot(c) {
+				// remove certificates with errors and root certificates and try again
 				return excludeRoots(append(blocks[:i], blocks[i+1:]...))
 			}
 		}
@@ -510,14 +533,14 @@ func debugf(format string, v ...interface{}) {
 	if !*debugFlag {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "debug: "+strings.TrimRight(format, "\r\n")+"\n", v...)
+	fmt.Fprintf(debugWriter, "debug: "+strings.TrimRight(format, "\r\n")+"\n", v...)
 }
 
 func warnf(format string, v ...interface{}) {
-	fmt.Fprintf(os.Stderr, "warning: "+strings.TrimRight(format, "\r\n")+"\n", v...)
+	fmt.Fprintf(errorWriter, "warning: "+strings.TrimRight(format, "\r\n")+"\n", v...)
 }
 
 func fatalf(format string, v ...interface{}) {
-	fmt.Fprintf(os.Stderr, "fatal: "+strings.TrimRight(format, "\r\n")+"\n", v...)
+	fmt.Fprintf(errorWriter, "fatal: "+strings.TrimRight(format, "\r\n")+"\n", v...)
 	os.Exit(1)
 }

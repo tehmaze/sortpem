@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/pem"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,11 @@ import (
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	*debugFlag = true
+	m.Run()
+}
 
 func TestRegexps(t *testing.T) {
 	var test = regexps{
@@ -44,22 +50,11 @@ func TestTypeFilter(t *testing.T) {
 		Regexp          *regexp.Regexp
 		Match, NotMatch []string
 	}{
-		/*
-			oneCertificate      = regexp.MustCompile(`^` + certificate + `$`)
-			anyPrivateKey       = regexp.MustCompile(privateKey + `$`)
-			oneX509PrivateKey   = regexp.MustCompile(`^` + x509PrivateKey + `$`)
-			oneRSAPrivateKey    = regexp.MustCompile(`^` + rsaPrivateKey + `$`)
-			oneOpenVPNStaticKey = regexp.MustCompile(`^` + openVPNStaticKey)
-			onePGPPublicKey     = regexp.MustCompile(`^` + pgpPublicKey + `$`)
-			onePGPPrivateKey    = regexp.MustCompile(`^` + pgpPrivateKey + `$`)
-		*/
 		{oneCertificate, []string{certificate}, []string{publicKey}},
-		{anyPrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey, pgpPrivateKey}, []string{certificate, publicKey}},
-		{oneX509PrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey}, []string{publicKey, pgpPrivateKey}},
+		{anyPrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey}, []string{certificate, publicKey}},
+		{oneX509PrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey}, []string{publicKey}},
 		{oneRSAPrivateKey, []string{rsaPrivateKey}, []string{ecPrivateKey}},
 		{oneOpenVPNStaticKey, []string{openVPNStaticKey + " V1"}, []string{privateKey, rsaPrivateKey}},
-		{onePGPPublicKey, []string{pgpPublicKey}, []string{publicKey}},
-		{onePGPPrivateKey, []string{pgpPrivateKey}, []string{privateKey}},
 	}
 	for _, test := range tests {
 		t.Run(test.Regexp.String(), func(t *testing.T) {
@@ -98,10 +93,35 @@ func TestPreset(t *testing.T) {
 	}
 
 	listPresets()
+
+	// Reset to defaults
+	*reverseFlag = false
+	*rootFlag = false
+	*stableFlag = false
+	*uniqueFlag = false
+	typesFlag = typesFlag[:0]
 }
 
 func TestReadInput(t *testing.T) {
-	// lol?
+	f, err := ioutil.TempFile("", "input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	name := f.Name()
+	defer os.Remove(name)
+
+	if _, err = f.Write([]byte(selfSignedRoot)); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = readInput([]string{name}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOpenOutput(t *testing.T) {
@@ -172,31 +192,33 @@ func TestDecodeCertificate(t *testing.T) {
 
 func TestCompareBlock(t *testing.T) {
 	var (
-		a, _    = pem.Decode([]byte(googleIntermediate))
-		b, _    = pem.Decode([]byte(googleEndpoint))
-		c       = &pem.Block{Type: privateKey}
-		d, _    = pem.Decode([]byte(selfSignedRoot))
-		blocks  = []*pem.Block{a, b, c, d}
-		compare = compareBlock(blocks)
+		a, _   = pem.Decode([]byte(googleIntermediate))
+		b, _   = pem.Decode([]byte(googleEndpoint))
+		c, _   = pem.Decode([]byte(selfSignedRoot))
+		blocks = pemBlocks{a, b, &pem.Block{Type: privateKey}, c}
 	)
 
-	if compare(0, 1) {
-		t.Fatal("expected compare(0, 1) to return false")
-	}
-	if !compare(1, 0) {
-		t.Fatal("expected compare(1, 0) to return true")
-	}
-	if compare(0, 0) {
-		t.Fatal("expected compare(0, 0) to return false")
-	}
-	if compare(2, 0) {
-		t.Fatal("expected compare(2, 0) to return false")
-	}
-	if !compare(0, 2) {
-		t.Fatal("expected compare(0, 2) to return false")
+	for i, block := range blocks {
+		t.Logf("block %d: %s %d bytes", i, block.Type, len(block.Bytes))
 	}
 
-	sort.SliceStable(blocks, compare)
+	if blocks.Less(0, 1) {
+		t.Fatal("expected blocks.Less(0, 1) to return false")
+	}
+	if !blocks.Less(1, 0) {
+		t.Fatal("expected blocks.Less(1, 0) to return true")
+	}
+	if blocks.Less(0, 0) {
+		t.Fatal("expected blocks.Less(0, 0) to return false")
+	}
+	if blocks.Less(2, 0) {
+		t.Fatal("expected blocks.Less(2, 0) to return false")
+	}
+	if !blocks.Less(0, 2) {
+		t.Fatal("expected blocks.Less(0, 2) to return false")
+	}
+
+	sort.Stable(blocks)
 
 	if blocks[0].Type != certificate {
 		t.Fatalf("expected block[0] to be a %s, got %s", certificate, blocks[0].Type)
