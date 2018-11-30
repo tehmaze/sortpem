@@ -4,7 +4,7 @@
 
 // +build plan9
 
-package main
+package sortpem
 
 import (
 	"crypto/x509"

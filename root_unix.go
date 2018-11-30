@@ -4,7 +4,7 @@
 
 // +build dragonfly freebsd js,wasm linux nacl netbsd openbsd solaris
 
-package main
+package sortpem
 
 import (
 	"crypto/x509"

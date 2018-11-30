@@ -8,7 +8,7 @@
 // +build darwin
 // +build arm arm64 ios
 
-package main
+package sortpem
 
 func loadSystemRoots() (*CertPool, error) {
 	p := NewCertPool()

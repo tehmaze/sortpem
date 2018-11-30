@@ -4,7 +4,7 @@
 
 // +build js,wasm
 
-package main
+package sortpem
 
 // Possible certificate files; stop after finding one.
 var certFiles = []string{}

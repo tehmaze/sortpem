@@ -4,7 +4,7 @@
 
 // +build dragonfly freebsd linux netbsd openbsd solaris
 
-package main
+package sortpem
 
 import (
 	"fmt"

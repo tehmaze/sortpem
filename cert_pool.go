@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package sortpem
 
 import (
 	"crypto/x509"
@@ -26,23 +26,23 @@ func NewCertPool() *CertPool {
 	}
 }
 
-func (s *CertPool) copy() *CertPool {
+func (pool *CertPool) copy() *CertPool {
 	p := &CertPool{
-		bySubjectKeyID: make(map[string][]int, len(s.bySubjectKeyID)),
-		byName:         make(map[string][]int, len(s.byName)),
-		certs:          make([]*x509.Certificate, len(s.certs)),
+		bySubjectKeyID: make(map[string][]int, len(pool.bySubjectKeyID)),
+		byName:         make(map[string][]int, len(pool.byName)),
+		certs:          make([]*x509.Certificate, len(pool.certs)),
 	}
-	for k, v := range s.bySubjectKeyID {
+	for k, v := range pool.bySubjectKeyID {
 		indexes := make([]int, len(v))
 		copy(indexes, v)
 		p.bySubjectKeyID[k] = indexes
 	}
-	for k, v := range s.byName {
+	for k, v := range pool.byName {
 		indexes := make([]int, len(v))
 		copy(indexes, v)
 		p.byName[k] = indexes
 	}
-	copy(p.certs, s.certs)
+	copy(p.certs, pool.certs)
 	return p
 }
 
@@ -70,38 +70,39 @@ func SystemCertPool() (*CertPool, error) {
 // given certificate. If any candidates were rejected then errCert will be set
 // to one of them, arbitrarily, and err will contain the reason that it was
 // rejected.
-func (s *CertPool) findVerifiedParents(cert *x509.Certificate) (parents []int, errCert *x509.Certificate, err error) {
-	if s == nil {
+func (pool *CertPool) findVerifiedParents(cert *x509.Certificate) (parents []int, errCert *x509.Certificate, err error) {
+	if pool == nil {
 		return
 	}
 	var candidates []int
 
 	if len(cert.AuthorityKeyId) > 0 {
-		candidates = s.bySubjectKeyID[string(cert.AuthorityKeyId)]
+		candidates = pool.bySubjectKeyID[string(cert.AuthorityKeyId)]
 	}
 	if len(candidates) == 0 {
-		candidates = s.byName[string(cert.RawIssuer)]
+		candidates = pool.byName[string(cert.RawIssuer)]
 	}
 
 	for _, c := range candidates {
-		if err = cert.CheckSignatureFrom(s.certs[c]); err == nil {
+		if err = cert.CheckSignatureFrom(pool.certs[c]); err == nil {
 			parents = append(parents, c)
 		} else {
-			errCert = s.certs[c]
+			errCert = pool.certs[c]
 		}
 	}
 
 	return
 }
 
-func (s *CertPool) contains(cert *x509.Certificate) bool {
-	if s == nil {
+// Contains checks if the cert is a trusted root certificate in this pool.
+func (pool *CertPool) Contains(cert *x509.Certificate) bool {
+	if pool == nil {
 		return false
 	}
 
-	candidates := s.byName[string(cert.RawSubject)]
+	candidates := pool.byName[string(cert.RawSubject)]
 	for _, c := range candidates {
-		if s.certs[c].Equal(cert) {
+		if pool.certs[c].Equal(cert) {
 			return true
 		}
 	}
@@ -110,25 +111,25 @@ func (s *CertPool) contains(cert *x509.Certificate) bool {
 }
 
 // AddCert adds a certificate to a pool.
-func (s *CertPool) AddCert(cert *x509.Certificate) {
+func (pool *CertPool) AddCert(cert *x509.Certificate) {
 	if cert == nil {
 		panic("adding nil Certificate to CertPool")
 	}
 
 	// Check that the certificate isn't being added twice.
-	if s.contains(cert) {
+	if pool.Contains(cert) {
 		return
 	}
 
-	n := len(s.certs)
-	s.certs = append(s.certs, cert)
+	n := len(pool.certs)
+	pool.certs = append(pool.certs, cert)
 
 	if len(cert.SubjectKeyId) > 0 {
 		keyID := string(cert.SubjectKeyId)
-		s.bySubjectKeyID[keyID] = append(s.bySubjectKeyID[keyID], n)
+		pool.bySubjectKeyID[keyID] = append(pool.bySubjectKeyID[keyID], n)
 	}
 	name := string(cert.RawSubject)
-	s.byName[name] = append(s.byName[name], n)
+	pool.byName[name] = append(pool.byName[name], n)
 }
 
 // AppendCertsFromPEM attempts to parse a series of PEM encoded certificates.
@@ -137,7 +138,7 @@ func (s *CertPool) AddCert(cert *x509.Certificate) {
 //
 // On many Linux systems, /etc/ssl/cert.pem will contain the system wide set
 // of root CAs in a format suitable for this function.
-func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
+func (pool *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 	for len(pemCerts) > 0 {
 		var block *pem.Block
 		block, pemCerts = pem.Decode(pemCerts)
@@ -153,7 +154,7 @@ func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 			continue
 		}
 
-		s.AddCert(cert)
+		pool.AddCert(cert)
 		ok = true
 	}
 
@@ -162,9 +163,9 @@ func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 
 // Subjects returns a list of the DER-encoded subjects of
 // all of the certificates in the pool.
-func (s *CertPool) Subjects() [][]byte {
-	res := make([][]byte, len(s.certs))
-	for i, c := range s.certs {
+func (pool *CertPool) Subjects() [][]byte {
+	res := make([][]byte, len(pool.certs))
+	for i, c := range pool.certs {
 		res[i] = c.RawSubject
 	}
 	return res
