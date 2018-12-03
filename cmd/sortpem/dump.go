@@ -10,6 +10,21 @@ import (
 	"strings"
 )
 
+// PEM block types.
+const (
+	certificate               = "CERTIFICATE"
+	certificateRequest        = "CERTIFICATE REQUEST"
+	certificateRevocationList = "X509 CRL"
+	dhParameters              = "DH PARAMETERS"
+	openVPNStaticKeyV1        = "OpenVPN Static key V1"
+	publicKey                 = "PUBLIC KEY"
+	privateKey                = "PRIVATE KEY"
+	rsaPublicKey              = "RSA " + publicKey
+	rsaPrivateKey             = "RSA " + privateKey
+	ecPrivateKey              = "EC " + privateKey
+	opensshPrivateKey         = "OPENSSH " + privateKey
+)
+
 const timeFormat = "Jan _2 15:04:05 2006 MST"
 
 type indentWriter struct {
@@ -156,6 +171,9 @@ func dumpBytes(w io.Writer, data []byte) (err error) {
 
 func paddedBytes(b []byte) (out []byte) {
 	lb := len(b)
+	if lb == 0 {
+		return
+	}
 	out = make([]byte, 0, 3*lb)
 	ox := out[lb : 3*lb]
 	hex.Encode(ox, b)

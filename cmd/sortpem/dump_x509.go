@@ -259,7 +259,7 @@ func dumpRSAPrivateKey(w io.Writer, key *rsa.PrivateKey) (err error) {
 	fmt.Fprintf(w, "RSA Private Key: (%d bit)\n", key.N.BitLen())
 	fmt.Fprintf(w, "  Exponent: %d (%#x)\n", key.E, key.E)
 	fmt.Fprintln(w, "  Modulus:")
-	if err = dumpBytes(indentWriter{w, 4}, key.N.Bytes()); err != nil {
+	if err = dumpPaddedBytesLimit(indentWriter{w, 4}, key.N.Bytes(), maxWidth); err != nil {
 		return
 	}
 	return

@@ -5,8 +5,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"testing"
 	"time"
 )
@@ -16,62 +14,6 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func TestRegexps(t *testing.T) {
-	var test = regexps{
-		regexp.MustCompile(`o`),
-		regexp.MustCompile(`r$`),
-		regexp.MustCompile(`z^`),
-	}
-	if !test.MatchString("foo") {
-		t.Fatal(`must match "foo"`)
-	}
-	if i := test.Index("bar"); i != 1 {
-		t.Fatalf(`expected "bar" to match index 1, got %d`, i)
-	}
-	if i := test.Index("qux"); i != -1 {
-		t.Fatalf(`expected "qux" to not match, got index %d`, i)
-	}
-
-	want := `o,r$,z^`
-	if s := test.String(); s != want {
-		t.Fatalf(`expected %q, got %q`, want, s)
-	}
-
-	if err := test.Set(`(`); err == nil {
-		t.Fatalf("expected error")
-	}
-	if err := test.Set("qux"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestTypeFilter(t *testing.T) {
-	var tests = []struct {
-		Regexp          *regexp.Regexp
-		Match, NotMatch []string
-	}{
-		{oneCertificate, []string{certificate}, []string{publicKey}},
-		{anyPrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey}, []string{certificate, publicKey}},
-		{oneX509PrivateKey, []string{privateKey, rsaPrivateKey, ecPrivateKey}, []string{publicKey}},
-		{oneRSAPrivateKey, []string{rsaPrivateKey}, []string{ecPrivateKey}},
-		{oneOpenVPNStaticKey, []string{openVPNStaticKey + " V1"}, []string{privateKey, rsaPrivateKey}},
-	}
-	for _, test := range tests {
-		t.Run(test.Regexp.String(), func(t *testing.T) {
-			for _, s := range test.Match {
-				if !test.Regexp.MatchString(s) {
-					t.Errorf("expected %q to match", s)
-				}
-			}
-			for _, s := range test.NotMatch {
-				if test.Regexp.MatchString(s) {
-					t.Errorf("expected %q to not match", s)
-				}
-			}
-		})
-	}
-}
-
 func TestPreset(t *testing.T) {
 	p := preset{
 		Name:    "test",
@@ -79,10 +21,10 @@ func TestPreset(t *testing.T) {
 		Root:    true,
 		Stable:  true,
 		Unique:  true,
-		Filter:  regexps{oneCertificate, oneX509PrivateKey},
+		Filter:  append(stringList{certificate}, keys...),
 	}
 	s := p.String()
-	want := `-t "^` + certificate + `$" -t "^` + x509PrivateKey + `$" -r -root -s -u`
+	want := `-t "^` + certificate + `$" -t "^` + privateKey + `$" -r -root -s -u`
 	if s != want {
 		t.Fatalf("expected preset to return %q, got %q", want, s)
 	}
@@ -190,75 +132,6 @@ func TestDecodeCertificate(t *testing.T) {
 	}
 }
 
-func TestCompareBlock(t *testing.T) {
-	var (
-		a, _   = pem.Decode([]byte(googleIntermediate))
-		b, _   = pem.Decode([]byte(googleEndpoint))
-		c, _   = pem.Decode([]byte(selfSignedRoot))
-		blocks = pemBlocks{a, b, &pem.Block{Type: privateKey}, c}
-	)
-
-	for i, block := range blocks {
-		t.Logf("block %d: %s %d bytes", i, block.Type, len(block.Bytes))
-	}
-
-	if blocks.Less(0, 1) {
-		t.Fatal("expected blocks.Less(0, 1) to return false")
-	}
-	if !blocks.Less(1, 0) {
-		t.Fatal("expected blocks.Less(1, 0) to return true")
-	}
-	if blocks.Less(0, 0) {
-		t.Fatal("expected blocks.Less(0, 0) to return false")
-	}
-	if blocks.Less(2, 0) {
-		t.Fatal("expected blocks.Less(2, 0) to return false")
-	}
-	if !blocks.Less(0, 2) {
-		t.Fatal("expected blocks.Less(0, 2) to return false")
-	}
-
-	sort.Stable(blocks)
-
-	if blocks[0].Type != certificate {
-		t.Fatalf("expected block[0] to be a %s, got %s", certificate, blocks[0].Type)
-	}
-	if blocks[1].Type != certificate {
-		t.Fatalf("expected block[1] to be a %s, got %s", certificate, blocks[1].Type)
-	}
-	if blocks[2].Type != certificate {
-		t.Fatalf("expected block[2] to be a %s, got %s", certificate, blocks[2].Type)
-	}
-	if blocks[3].Type != privateKey {
-		t.Fatalf("expected block[3] to be a %s, got %s", privateKey, blocks[3].Type)
-	}
-}
-
-func TestCompareCertificates(t *testing.T) {
-	a, _ := pem.Decode([]byte(googleEndpoint))
-	b, _ := pem.Decode([]byte(googleIntermediate))
-
-	// decode i & j failed
-	if compareCertificates(nil, nil) {
-		t.Fatal("expected compareCertificates(nil, nil) to return false")
-	}
-
-	// decode i failed
-	if compareCertificates(nil, a.Bytes) {
-		t.Fatal("expected compareCertificates(nil, der) to return false")
-	}
-
-	// decode j failed
-	if !compareCertificates(a.Bytes, nil) {
-		t.Fatal("expected compareCertificates(def, nil) to return true")
-	}
-
-	// a is signed by b
-	if !compareCertificates(a.Bytes, b.Bytes) {
-		t.Fatal("expected compareCertificates to return true")
-	}
-}
-
 func TestReadRoots(t *testing.T) {
 	*caFlag = ""
 	if p, err := readRoots(); err != nil {
@@ -272,72 +145,6 @@ func TestReadRoots(t *testing.T) {
 		t.Fatal(err)
 	} else if p == nil {
 		t.Fatal("returned nil CertPool")
-	}
-}
-
-func TestIncludeRoot(t *testing.T) {
-	roots = NewCertPool()
-	roots.AppendCertsFromPEM([]byte(globalSignRootR2))
-
-	var (
-		a, _      = pem.Decode([]byte(googleIntermediate))
-		b, _      = pem.Decode([]byte(googleEndpoint))
-		c         = &pem.Block{Type: privateKey}
-		d         = &pem.Block{Type: certificate, Bytes: []byte("bogus")}
-		blocks    = []*pem.Block{a, b, c, d}
-		withRoots = includeRoot(blocks)
-	)
-	if len(withRoots) != len(blocks) {
-		t.Fatalf("expected no more certificate after includeRoot, but got %d before and %d after", len(blocks), len(withRoots))
-	}
-}
-
-func TestExcludeRoots(t *testing.T) {
-	var (
-		a, _         = pem.Decode([]byte(googleIntermediate))
-		b, _         = pem.Decode([]byte(googleEndpoint))
-		c, _         = pem.Decode([]byte(selfSignedRoot))
-		d            = &pem.Block{Type: certificate, Bytes: []byte("bogus")}
-		blocks       = []*pem.Block{a, b, c, d}
-		withoutRoots = excludeRoots(blocks)
-	)
-	if len(blocks)-len(withoutRoots) != 2 {
-		t.Fatalf("expected 2 less certificate after excludeRoots, but got %d before and %d after", len(blocks), len(withoutRoots))
-	}
-}
-
-func TestIsRoot(t *testing.T) {
-	roots = NewCertPool()
-	roots.AppendCertsFromPEM([]byte(globalSignRootR2))
-
-	var (
-		a, _ = pem.Decode([]byte(globalSignRootR2))
-		b, _ = pem.Decode([]byte(selfSignedRoot))
-		c, _ = pem.Decode([]byte(googleIntermediate))
-	)
-
-	ac, err := decodeCertificate(a.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !isRoot(ac) {
-		t.Fatalf("expected root certificate")
-	}
-
-	bc, err := decodeCertificate(b.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !isRoot(bc) {
-		t.Fatalf("expected self-signed root certificate")
-	}
-
-	cc, err := decodeCertificate(c.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isRoot(cc) {
-		t.Fatalf("expected intermediate certificate not to be a trusted root")
 	}
 }
 

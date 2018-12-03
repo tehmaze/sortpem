@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -9,18 +8,30 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
-	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/tehmaze/sortpem"
 )
 
+// Build information
+var (
+	Version   = "(development version)"
+	BuildDate = time.Now().UTC().Format("2 January 2006, 15:04:05")
+	BuildHash = "HEAD"
+)
+
+// Command flags
 var (
 	allFlag     = flag.Bool("a", false, "Output all blocks, not only the ones matching -t")
 	caFlag      = flag.String("ca", "", "CA file")
 	countFlag   = flag.Bool("c", false, "Count blocks")
 	dumpFlag    = flag.Bool("d", false, "Dump text output of decoded PEM block")
-	typesFlag   regexps
+	typesFlag   = append(keys, certificate)
 	outputFlag  = flag.String("o", "", "Print the output to a file in stead of standard output")
 	presetFlag  = flag.String("p", "", `Preset (use "list" for an overview)`)
 	reverseFlag = flag.Bool("r", false, "Reverse sort")
@@ -28,81 +39,13 @@ var (
 	stableFlag  = flag.Bool("s", false, "Stable sort")
 	uniqueFlag  = flag.Bool("u", false, "Unique blocks")
 	debugFlag   = flag.Bool("D", false, "Enable debug logging")
+	versioFlag  = flag.Bool("v", false, "Show version and exit")
 )
 
-type regexps []*regexp.Regexp
-
-func (res *regexps) Index(s string) int {
-	if res != nil && len(*res) > 0 {
-		for i, r := range *res {
-			if r.MatchString(s) {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func (res *regexps) MatchString(s string) bool {
-	if res == nil || len(*res) == 0 {
-		return true
-	}
-	for _, re := range *res {
-		if re.MatchString(s) {
-			return true
-		}
-	}
-	return false
-}
-
-func (res *regexps) String() string {
-	s := make([]string, len(*res))
-	for i, r := range *res {
-		s[i] = r.String()
-	}
-	return strings.Join(s, ",")
-}
-
-func (res *regexps) Set(value string) error {
-	r, err := regexp.Compile(value)
-	if err != nil {
-		return err
-	}
-	*res = append(*res, r)
-	return nil
-}
-
-// PEM block types.
-const (
-	certificate               = "CERTIFICATE"
-	certificateRequest        = "CERTIFICATE REQUEST"
-	certificateRevocationList = "X509 CRL"
-	dhParameters              = "DH PARAMETERS"
-	openVPNStaticKey          = "OpenVPN Static key"
-	publicKey                 = "PUBLIC KEY"
-	privateKey                = "PRIVATE KEY"
-	rsaPublicKey              = "RSA " + publicKey
-	rsaPrivateKey             = "RSA " + privateKey
-	ecPrivateKey              = "EC " + privateKey
-	x509PrivateKey            = `(?:RSA |EC |)` + privateKey
-	opensshPrivateKey         = "OPENSSH " + privateKey
-)
-
-// PEM block type regular expressions.
-var (
-	oneCertificate               = regexp.MustCompile(`^` + certificate + `$`)
-	oneCertificateRequest        = regexp.MustCompile(`^` + certificateRequest + `$`)
-	oneCertificateRevocationList = regexp.MustCompile(`^` + certificateRevocationList + `$`)
-	anyPrivateKey                = regexp.MustCompile(privateKey + `$`)
-	oneX509PrivateKey            = regexp.MustCompile(`^` + x509PrivateKey + `$`)
-	oneRSAPrivateKey             = regexp.MustCompile(`^` + rsaPrivateKey + `$`)
-	oneOpenVPNStaticKey          = regexp.MustCompile(`^` + openVPNStaticKey)
-	oneOpenSSHPrivateKey         = regexp.MustCompile(`^` + opensshPrivateKey + `$`)
-)
-
+// Globals
 var (
 	// roots are our trusted roots, either coming from system or -ca file
-	roots *CertPool
+	roots *sortpem.CertPool
 
 	// cache of already-parsed certificate blocks
 	cache = map[string]*x509.Certificate{}
@@ -114,18 +57,48 @@ var (
 	debugWriter = os.Stderr
 	errorWriter = os.Stderr
 
+	// types
+	keys         = stringList{privateKey, rsaPrivateKey, ecPrivateKey}
+	defaultTypes = append(keys, certificate)
+
 	// presets for -p
 	presets = []preset{
-		{Name: "crl", Filter: regexps{oneCertificateRevocationList}},
-		{Name: "crt", Root: true, Filter: regexps{oneCertificate}},
-		{Name: "csr", Filter: regexps{oneCertificateRequest}},
-		{Name: "key", Filter: regexps{oneX509PrivateKey}},
-		{Name: "nginx", Filter: regexps{oneCertificate, oneX509PrivateKey}},
-		{Name: "haproxy", Filter: regexps{oneCertificate, oneX509PrivateKey}, Root: true},
-		{Name: "openvpn", Filter: regexps{oneCertificate, oneX509PrivateKey, oneOpenVPNStaticKey}},
-		{Name: "ssh", Filter: regexps{oneOpenSSHPrivateKey}},
+		{Name: "crl", Filter: stringList{certificateRevocationList}},
+		{Name: "crt", Root: true, Filter: stringList{certificate}},
+		{Name: "csr", Filter: stringList{certificateRequest}},
+		{Name: "key", Filter: keys},
+		{Name: "nginx", Filter: defaultTypes},
+		{Name: "haproxy", Filter: defaultTypes, Root: true},
+		{Name: "openvpn", Filter: append(defaultTypes, openVPNStaticKeyV1)},
+		{Name: "ssh", Filter: stringList{opensshPrivateKey}},
 	}
 )
+
+type stringList []string
+
+func (s stringList) Contains(value string) bool {
+	for _, other := range s {
+		if other == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *stringList) Set(values string) error {
+	for _, value := range strings.Split(values, ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			*s = append(*s, value)
+		}
+	}
+	return nil
+}
+
+func (s stringList) String() string {
+	return strings.Join(s, ",")
+}
+
+var _ flag.Value = (*stringList)(nil)
 
 // preset is a collection of flag defaults.
 type preset struct {
@@ -134,7 +107,7 @@ type preset struct {
 	Root    bool
 	Stable  bool
 	Unique  bool
-	Filter  regexps
+	Filter  stringList
 }
 
 func (p preset) Apply() {
@@ -158,8 +131,8 @@ func (p preset) Apply() {
 
 func (p preset) String() string {
 	var s []string
-	for _, r := range p.Filter {
-		s = append(s, fmt.Sprintf(`-t %q`, r))
+	if len(p.Filter) > 0 {
+		s = append(s, fmt.Sprintf(`-t %q`, strings.Join(p.Filter, ",")))
 	}
 	if p.Reverse {
 		s = append(s, "-r")
@@ -177,9 +150,26 @@ func (p preset) String() string {
 }
 
 func main() {
-	flag.Var(&typesFlag, "t", "Type of block order and filter (regular expression(s))")
+	flag.Var(&typesFlag, "t", "Type order and filter (case sensitive, comma separated)")
 	flag.Usage = usage
 	flag.Parse()
+
+	// version
+	if *versioFlag {
+		fmt.Println("sortpem", Version)
+		if *debugFlag {
+			fmt.Println("")
+			fmt.Printf("Build date: %s\n", BuildDate)
+			fmt.Printf("Build hash: %s\n", BuildHash)
+			fmt.Printf("Go version: %s\n", runtime.Version())
+		}
+		return
+	}
+
+	// default types
+	if len(typesFlag) == 0 {
+		typesFlag = defaultTypes
+	}
 
 	// resolve terminal width asap
 	maxWidth = terminalWidth() - 1
@@ -220,10 +210,15 @@ func main() {
 		return
 	}
 
+	sorter := sortpem.New(blocks)
+	sorter.Order = typesFlag
+
+	log.Printf("order: %#+v", sorter.Order)
+
 	if *rootFlag {
-		blocks = includeRoot(blocks)
+		sorter.ResolveRoots()
 	} else {
-		blocks = excludeRoots(blocks)
+		sorter.ExcludeRoots()
 	}
 
 	if *countFlag {
@@ -237,10 +232,14 @@ func main() {
 		return
 	}
 
-	if *stableFlag {
-		sort.Stable(blocks)
+	if *stableFlag && *reverseFlag {
+		sort.Stable(sort.Reverse(sorter))
+	} else if *stableFlag {
+		sort.Stable(sorter)
+	} else if *reverseFlag {
+		sort.Sort(sort.Reverse(sorter))
 	} else {
-		sort.Sort(blocks)
+		sort.Sort(sorter)
 	}
 
 	var (
@@ -277,10 +276,10 @@ func listPresets() {
 	}
 }
 
-func readRoots() (pool *CertPool, err error) {
+func readRoots() (pool *sortpem.CertPool, err error) {
 	if *caFlag == "" {
-		if pool, err = SystemCertPool(); err == nil {
-			debugf("roots: %d from system", len(pool.certs))
+		if pool, err = sortpem.SystemCertPool(); err == nil {
+			debugf("roots: %d from system", len(pool.Subjects()))
 		}
 		return
 	}
@@ -290,11 +289,11 @@ func readRoots() (pool *CertPool, err error) {
 		return nil, fmt.Errorf("error reading CA file %s: %v", *caFlag, err)
 	}
 
-	pool = NewCertPool()
+	pool = sortpem.NewCertPool()
 	if !pool.AppendCertsFromPEM(pemBytes) {
 		warnf("no PEM encoded certificates found in %s", *caFlag)
 	}
-	debugf("roots: %d from %s", len(pool.certs), *caFlag)
+	debugf("roots: %d from %s", len(pool.Subjects()), *caFlag)
 
 	return
 }
@@ -341,13 +340,13 @@ func openOutput() (wc io.WriteCloser, name string, err error) {
 	return
 }
 
-func decodeAll(data []byte) (blocks pemBlocks) {
+func decodeAll(data []byte) (blocks []*pem.Block) {
 	var block *pem.Block
 	for {
 		if block, data = pem.Decode(data); block == nil {
 			return
 		}
-		if *allFlag || typesFlag.MatchString(block.Type) {
+		if *allFlag || typesFlag.Contains(block.Type) {
 			blocks = append(blocks, block)
 		}
 	}
@@ -368,165 +367,6 @@ func decodeCertificate(pemCert []byte) (c *x509.Certificate, err error) {
 	cache[string(pemCert)] = c
 
 	return
-}
-
-type pemBlocks []*pem.Block
-
-func (blocks pemBlocks) Len() int { return len(blocks) }
-
-func (blocks pemBlocks) Less(i, j int) bool {
-	a, b := blocks[i], blocks[j]
-	debugf("compare blocks: %q (%d) <=> %q (%d)", a.Type, i, b.Type, j)
-	if a.Type == certificate {
-		if b.Type == certificate {
-			return compareCertificates(a.Bytes, b.Bytes) != *reverseFlag
-		}
-		return !*reverseFlag
-	}
-
-	ai, bi := typesFlag.Index(a.Type), typesFlag.Index(b.Type)
-	if bi == -1 { // b's Type is not in -t
-		return ai != -1
-	}
-	if bi == -1 { // a's Type is not in -t
-		return false
-	}
-	if ai == bi { // a and b are of same type in -t
-		return a.Type < b.Type
-	}
-	return ai < bi
-}
-
-func (blocks pemBlocks) Swap(i, j int) {
-	blocks[i], blocks[j] = blocks[j], blocks[i]
-}
-
-func compareCertificates(i, j []byte) bool {
-	var (
-		a, b *x509.Certificate
-		err  error
-	)
-	if a, err = decodeCertificate(i); err != nil {
-		warnf("error parsing certificate: %v", err)
-		return false
-	}
-	if b, err = decodeCertificate(j); err != nil {
-		warnf("error parsing certificate: %v", err)
-		return true
-	}
-	debugf("compare certificates: %q <=> %q", a.Subject, b.Subject)
-
-	if a.AuthorityKeyId != nil {
-		if bytes.Equal(a.AuthorityKeyId, b.SubjectKeyId) {
-			// a is signed by b
-			debugf("compare certificates: %q signed by %q", a.Subject, b.Subject)
-			return true
-		}
-		if bytes.Equal(b.AuthorityKeyId, a.SubjectKeyId) {
-			// b is signed by a
-			debugf("compare certificates: %q has issued %q", a.Subject, b.Subject)
-			return false
-		}
-	}
-
-	switch {
-	case isRoot(a):
-		debugf("compare certificates: %q is root", a.Subject)
-		return false
-	case isRoot(b):
-		debugf("compare certificates: %q is root", b.Subject)
-		return true
-	case isSelfSigned(a):
-		debugf("compare certificates: %q is self-signed", a.Subject)
-		return false
-	case isSelfSigned(b):
-		debugf("compare certificates: %q is self-signed", b.Subject)
-		return true
-	}
-
-	return false // don't know!
-}
-
-// includeRoot attempts to resolve root certificates for CERTIFICATE types in
-// blocks; it also removes any CERTIFICATE blocks that fail to decode
-func includeRoot(blocks []*pem.Block) []*pem.Block {
-	debugf("including root certificate for %d block(s)", len(blocks))
-
-	var (
-		found bool
-		certs = make([]*x509.Certificate, 0, len(blocks))
-	)
-	for i, block := range blocks {
-		if block.Type == certificate {
-			c, err := decodeCertificate(block.Bytes)
-			if err != nil {
-				warnf("error parsing certificate: %v", err)
-				// found a broken certificate block, resume from start
-				return includeRoot(append(blocks[:i], blocks[i+1:]...))
-			} else if found = isRoot(c); found {
-				// already a root certificate, nothing to do here
-				return blocks
-			}
-			certs = append(certs, c)
-		}
-	}
-
-	// now, for the parsed certificates, find roots
-	for _, cert := range certs {
-		if parents, _, err := roots.findVerifiedParents(cert); err != nil {
-			warnf("error finding root certificate for %q: %v", cert.Subject, err)
-		} else if len(parents) > 0 {
-			debugf("including %d certificate(s) from system roots", len(parents))
-			for _, root := range parents {
-				blocks = append(blocks, &pem.Block{
-					Type:  certificate,
-					Bytes: roots.certs[root].Raw,
-				})
-			}
-		}
-	}
-
-	return blocks
-}
-
-// excludeRoots attempts to remove root certificates for CERTIFICATE types in
-// blocks; it also removes any CERTIFICATE blocks that fail to decode
-func excludeRoots(blocks []*pem.Block) []*pem.Block {
-	debugf("filtering out root certificates in %d block(s)", len(blocks))
-
-	for i, block := range blocks {
-		if block.Type == certificate {
-			c, err := decodeCertificate(block.Bytes)
-			if err != nil {
-				warnf("error parsing certificate: %v", err)
-			}
-			if err != nil || isRoot(c) {
-				// remove certificates with errors and root certificates and try again
-				return excludeRoots(append(blocks[:i], blocks[i+1:]...))
-			}
-		}
-	}
-
-	return blocks
-}
-
-func isRoot(c *x509.Certificate) bool {
-	if roots != nil && roots.contains(c) {
-		debugf("root certificate %q (in trusted roots)", c.Subject)
-		return true
-	}
-	if isSelfSigned(c) {
-		debugf("root certificate %q (self-signed)", c.Subject)
-		return true
-	}
-	return false
-}
-
-func isSelfSigned(c *x509.Certificate) bool {
-	if c.AuthorityKeyId != nil {
-		return bytes.Equal(c.AuthorityKeyId, c.SubjectKeyId)
-	}
-	return bytes.Equal(c.RawSubject, c.RawIssuer)
 }
 
 func debugf(format string, v ...interface{}) {
