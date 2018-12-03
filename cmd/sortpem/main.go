@@ -21,7 +21,7 @@ import (
 // Build information
 var (
 	Version   = "(development version)"
-	BuildDate = time.Now().UTC().Format("2 January 2006, 15:04:05")
+	BuildDate = time.Now().UTC().Format(time.ANSIC)
 	BuildHash = "HEAD"
 )
 
@@ -162,6 +162,7 @@ func main() {
 			fmt.Printf("Build date: %s\n", BuildDate)
 			fmt.Printf("Build hash: %s\n", BuildHash)
 			fmt.Printf("Go version: %s\n", runtime.Version())
+			fmt.Printf("Platform:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		}
 		return
 	}
