@@ -31,7 +31,8 @@ type Sorter struct {
 	// Blocks are our PEM blocks.
 	Blocks []*pem.Block
 
-	// Roots are our trusted root certificates.
+	// Roots are our trusted root certificates. If nil, the ResolveRoots and
+	// ExcludeRoots function will use the system trusted root certificates.
 	Roots *CertPool
 
 	// Order of our blocks.
@@ -47,6 +48,12 @@ func New(blocks []*pem.Block) *Sorter {
 		Blocks: blocks,
 		cache:  make(map[string]*x509.Certificate),
 	}
+}
+
+// NewBytes returns a sorter for all PEM blocks in data.
+func NewBytes(data []byte) *Sorter {
+	blocks, _ := DecodeAll(data)
+	return New(blocks)
 }
 
 // Len is the number of Blocks contained.
