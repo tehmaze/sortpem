@@ -5,6 +5,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"sort"
+
+	"golang.org/x/crypto/blake2b"
 )
 
 // Sorter can help sort slices of PEM blocks. You can use this struct directly,
@@ -269,6 +271,19 @@ func (sorter *Sorter) excludeRoots() (changed bool) {
 				sorter.Blocks = append(sorter.Blocks[:i], sorter.Blocks[i+1:]...)
 				return true
 			}
+		}
+	}
+	return
+}
+
+// Unique returns only unique blocks.
+func (sorter *Sorter) Unique() (blocks []*pem.Block) {
+	seen := make(map[[blake2b.Size256]byte]bool)
+	for _, block := range sorter.Blocks {
+		checksum := blake2b.Sum256(pem.EncodeToMemory(block))
+		if !seen[checksum] {
+			seen[checksum] = true
+			blocks = append(blocks, block)
 		}
 	}
 	return

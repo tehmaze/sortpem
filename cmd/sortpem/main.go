@@ -252,6 +252,11 @@ func main() {
 	}
 	defer output.Close()
 
+	blocks = sorter.Blocks
+	if *uniqueFlag {
+		blocks = sorter.Unique()
+	}
+
 	for _, block := range blocks {
 		if *dumpFlag {
 			if err = dumpText(output, block); err != nil {
