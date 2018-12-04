@@ -1,4 +1,4 @@
-# sortpem
+# SortPEM [API][]
 
 Sorting utility for PEM files. Failing to remember what order to put the
 certificate and its intermediates in? And what intermediate should we include?
@@ -11,6 +11,8 @@ provide you that information.
 
 If you wish to use a custom trusted roots bundle (in PEM format), you can pass
 the `-ca <file>` flag to `sortpem`.
+
+[API]: https://godoc.org/github.com/tehmaze/sortpem
 
 ## Options
 
