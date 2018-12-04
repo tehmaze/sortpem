@@ -1,4 +1,4 @@
-# SortPEM [API][]
+# SortPEM [![GoDoc](https://godoc.org/gopkg.in/tehmaze/sortpem.v1?status.svg)](https://godoc.org/gopkg.in/tehmaze/sortpem.v1)
 
 Sorting utility for PEM files. Failing to remember what order to put the
 certificate and its intermediates in? And what intermediate should we include?
